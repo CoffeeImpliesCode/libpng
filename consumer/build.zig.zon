@@ -1,0 +1,27 @@
+.{
+    .name = .libpng_consumer,
+    .version = "0.1.0",
+    // The value Zig 0.16.0 printed for this package name and manifest. The
+    // field was deliberately absent, because a fingerprint is an identifier the
+    // toolchain *derives* and a value written before a run would be an
+    // invented one. `zig build run` in this directory reported it:
+    //
+    //     build.zig.zon:1:2: error: missing top-level 'fingerprint' field;
+    //     suggested value: 0x317db5b607ee98ae
+    //
+    // Nothing in this package's build graph or program reads it.
+    .fingerprint = 0x317db5b607ee98ae,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        // A relative path, not a registry or archive URL. The consumer is the
+        // proof that `dep.module("libpng")` works from outside the package that
+        // defines it; resolving that through the network would make the proof
+        // depend on a published state of the world instead.
+        .libpng = .{ .path = ".." },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}

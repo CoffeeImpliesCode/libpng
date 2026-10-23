@@ -3,7 +3,7 @@
     .name = .libpng,
     .fingerprint = 0xb7a09eb4fdb09421,
     .version = "1.6.59",
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zlib = .{ .path = "../zlib" },
     },

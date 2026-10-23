@@ -12,7 +12,7 @@ pub fn build(b: *std.Build) void {
 
     // Expose linkage and dispatch options so the consumer can exercise each configuration.
     const linkage = b.option(
-        std.builtin.LinkMode,
+        std.lang.LinkMode,
         "linkage",
         "Which delivery of libpng to check. Forwarded to the dependency; it " ++
             "decides the artifact, never anything in this package.",
@@ -51,8 +51,9 @@ pub fn build(b: *std.Build) void {
 
     const run_exe = b.addRunArtifact(exe);
     run_exe.has_side_effects = true;
+    run_exe.failing_to_execute_foreign_is_an_error = false;
     // Forward provider arguments to the runtime-loaded consumer.
-    if (b.args) |args| run_exe.addArgs(args);
+    run_exe.addPassthruArgs();
     const run_step = b.step("run", "Build and run the consumer program");
     run_step.dependOn(&run_exe.step);
 }

@@ -138,7 +138,7 @@ test "grey8x8-200.png decodes to 200 in every one of its 64 samples" {
     try testing.expectEqual(libpng.Interlace.none, decoded.header.interlace);
     try testing.expectEqual(@as(usize, 8), try decoded.reader.rowBytes());
 
-    const every = [_]u8{200} ** 64;
+    const every: [64]u8 = @splat(200);
     var at: usize = 0;
     for (0..8) |y| {
         const row = decoded.rows.slice(y);
@@ -200,7 +200,8 @@ test "a row buffer that is not the row size libpng reports is refused" {
     var writer = try libpng.Writer.open();
     defer writer.deinit();
     try writer.writeInfo(&sink, header);
-    try testing.expectError(error.RowStrideMismatch, writer.writeRow((&([_]u8{0} ** 16))[0..stride - 1]));
+    const short_row: [16]u8 = @splat(0);
+    try testing.expectError(error.RowStrideMismatch, writer.writeRow(short_row[0 .. stride - 1]));
 }
 
 test "destroying a reader destroys exactly what it created" {
@@ -221,7 +222,8 @@ test "destroying a reader destroys exactly what it created" {
     var rows = try libpng.Rows.alloc(testing.allocator, header.height, try second.rowBytes());
     defer rows.deinit();
     try second.readImage(&rows);
-    try testing.expectEqualSlices(u8, &[_]u8{200} ** 8, rows.slice(3));
+    const expected_row: [8]u8 = @splat(200);
+    try testing.expectEqualSlices(u8, &expected_row, rows.slice(3));
 
     // `deinit` is idempotent for the same reader value.
     first.deinit();

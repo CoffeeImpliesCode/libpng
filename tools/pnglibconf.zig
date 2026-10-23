@@ -113,8 +113,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     // Require exactly one complete banner line, not a substring match.
-    const want_banner = try std.fmt.allocPrint(
-        arena,
+    const want_banner = try arena.print(
         "/* libpng version {s} */",
         .{options.expect_version},
     );

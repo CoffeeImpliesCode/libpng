@@ -22,10 +22,12 @@ The prebuilt configuration sets `PNG_ZLIB_VERNUM` to `0`; this disables only the
 - The sibling zlib dependency is required; there is no optional-zlib mode. No system zlib include path is added.
 - Static linkage is the default. Dynamic linkage produces `libpng16.so.16.59.0` with ELF soname `libpng16.so.16`; Darwin shared builds also export internal symbols because the build has no equivalent version script.
 - `-Druntime=true` selects explicit runtime loading. System mode is not implemented; `-Dsystem=true` is refused rather than falling back to the bundled library.
+- Zig 0.17 hides passthrough args and runner toggles from the configurer; the nested consumer forwards them through `Run` and skips foreign execution when no executor is enabled.
+- The nested consumer accepts `-Dconsumer-libc-runtimes=PATH` because Zig 0.17 does not expose `--libc-runtimes` to build scripts.
 
 ## Known platform boundaries
 
-The recorded Zig 0.16.0 53-target matrix ran all nine tests on 20 targets, built 18 targets without a local runner, and failed to build 15 targets.
+The pre-port Zig 0.16.0 53-target matrix ran all nine tests on 20 targets, built 18 targets without a local runner, and failed to build 15 targets.
 
 - `wasm32-wasi` fails because wasi-libc requires exception-handling support for `setjmp`/`longjmp`.
 - Build failures affect `aarch64`, `aarch64_be`, `arm`, `armeb`, `mips`, `mipsel`, `powerpc`, `x86`, and `x86_64` NetBSD; `arm`, `x86`, `powerpc`, `mips64`, and `mips64el` OpenBSD; and `wasm32-wasi`. The BSD failures occur in Zig's libc-header translation: Aro rejects NetBSD visibility pragmas, some OpenBSD targets have `size_t` conflicts, and MIPS targets lack endianness macros. Other listed BSD targets compile; their matrix status is build-only when no runner exists.

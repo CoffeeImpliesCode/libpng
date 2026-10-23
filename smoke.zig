@@ -123,7 +123,8 @@ pub fn main(init: std.process.Init) !void {
         0, 255, 0, 128, 0, 0, 255, 255,
     });
 
-    try checkFixture(w, "grey8x8-200", grey8x8, 8, 8, 1, libpng.c.PNG_COLOR_TYPE_GRAY, &([_]u8{200} ** 64));
+    const grey8x8_expected: [64]u8 = @splat(200);
+    try checkFixture(w, "grey8x8-200", grey8x8, 8, 8, 1, libpng.c.PNG_COLOR_TYPE_GRAY, &grey8x8_expected);
 
     // Reject a mismatched signature before libpng starts decoding.
     var almost = libpng.signature;

@@ -90,12 +90,12 @@ pub const Header = struct {
 
     /// The colour type as the raw C integer.
     pub fn rawColorType(self: Header) c_int {
-        return @intFromEnum(self.color_type);
+        return @backingInt(self.color_type);
     }
 
     /// The interlace method as the raw C integer.
     pub fn rawInterlace(self: Header) c_int {
-        return @intFromEnum(self.interlace);
+        return @backingInt(self.interlace);
     }
 };
 
@@ -358,8 +358,8 @@ pub const Reader = struct {
             .width = width,
             .height = height,
             .bit_depth = bit_depth,
-            .color_type = @enumFromInt(color_type),
-            .interlace = @enumFromInt(interlace),
+            .color_type = @fromBackingInt(@intCast(color_type)),
+            .interlace = @fromBackingInt(@intCast(interlace)),
             .compression_method = compression,
             .filter_method = filter,
         };

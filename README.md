@@ -1,6 +1,7 @@
 # libpng
 
 libpng 1.6.59, the PNG Reference Library, packaged as a Zig SDK. It builds the upstream C library and publishes a typed facade and translated C declarations.
+Requires Zig 0.17.0.
 
 ## Source deviations from upstream
 
@@ -16,7 +17,7 @@ No files under the vendored `src/` tree are modified. The fork adds a Zig facade
 
 ## Support matrix
 
-Recorded with Zig 0.16.0:
+Pre-port baseline, recorded with Zig 0.16.0:
 
 | Gate | Result |
 |---|---|

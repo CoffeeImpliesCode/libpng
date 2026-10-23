@@ -38,7 +38,7 @@ fn noProvider() ConfigurationError {
 }
 
 fn label(allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
-    return std.fmt.allocPrint(allocator, fmt, args) catch @panic("OOM");
+    return allocator.print(fmt, args) catch @panic("OOM");
 }
 
 /// Embedded greyscale fixture with an independently recorded digest.
@@ -83,6 +83,8 @@ const Declared = struct {
     pixels: []const u8,
 };
 
+const grey8x8_200_pixels: [64]u8 = @splat(200);
+
 const declared = [_]Declared{
     .{
         .name = "grey8x8-200.png",
@@ -95,7 +97,7 @@ const declared = [_]Declared{
         .color_type = .greyscale,
         .interlace = .none,
         .row_bytes = 8,
-        .pixels = &([_]u8{200} ** 64),
+        .pixels = &grey8x8_200_pixels,
     },
     .{
         .name = "rgb4x3.png",
@@ -215,7 +217,7 @@ fn parseChunks(bytes: []const u8, out: []Chunk) ![]Chunk {
         const data_end = data_start + length;
         if (data_end + 4 > bytes.len) return error.TruncatedChunkData;
         const data = bytes[data_start..data_end];
-        const computed = std.hash.crc.Crc32.hash(bytes[at + 4 ..][0 .. 4 + length]);
+        const computed = std.hash.crc.@"CRC-32/ISO-HDLC".hash(bytes[at + 4 ..][0 .. 4 + length]);
         const declared_crc = std.mem.readInt(u32, bytes[data_end..][0..4], .big);
         if (count == out.len) return error.TooManyChunks;
         out[count] = .{
@@ -294,8 +296,8 @@ fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixture
     try checkInt(w, fixture.name ++ ": width", header.width, fixture.width);
     try checkInt(w, fixture.name ++ ": height", header.height, fixture.height);
     try checkInt(w, fixture.name ++ ": bit depth", header.bit_depth, fixture.bit_depth);
-    try checkInt(w, fixture.name ++ ": colour type", @intFromEnum(header.color_type), @intFromEnum(fixture.color_type));
-    try checkInt(w, fixture.name ++ ": interlace", @intFromEnum(header.interlace), @intFromEnum(fixture.interlace));
+    try checkInt(w, fixture.name ++ ": colour type", @backingInt(header.color_type), @backingInt(fixture.color_type));
+    try checkInt(w, fixture.name ++ ": interlace", @backingInt(header.interlace), @backingInt(fixture.interlace));
 
     // At 8-bit depth, row bytes are width times channels with no padding.
     try checkInt(w, fixture.name ++ ": png_get_rowbytes", try reader.rowBytes(), fixture.row_bytes);

@@ -1,130 +1,27 @@
 // SPDX-License-Identifier: MIT
-// See FORK-LICENSE.md for what that identifier covers, and NOTICE.md for the
-// per-file inventory of the upstream material this package ships.
-//
 .{
-    // The package id, and the name a dependent writes in its dependency map.
-    // The directory is `libpng`; the Zig module name is also `libpng`, so
-    // `b.addModule("libpng", ...)` registers it and `dep.module("libpng")`
-    // reaches it. The C artifact is a *different* name on purpose: see
-    // `artifact_name` in `build.zig`.
-    //
-    // `dep.artifact("png16")` is what a C consumer asks for, and Zig prepends
-    // the platform's `lib` prefix to it, which is what makes the emitted
-    // `libpng16.a` and `libpng16.so.16.59.0` the names upstream's own build
-    // produces. So `lib_name = "libpng"` for the module and
-    // `artifact_name = "png16"` for the C library are one string apart on
-    // purpose, and neither is a typo.
     .name = .libpng,
     .fingerprint = 0xb7a09eb4fdb09421,
-    // Upstream's own release, read out of the vendored source:
-    //   src/png.h:277   `#define PNG_LIBPNG_VER_STRING "1.6.59"`
-    //   src/png.h:281   `#define PNG_LIBPNG_VER_SHAREDLIB 16`
-    //   src/png.h:286-288 `PNG_LIBPNG_VER_MAJOR 1`, `MINOR 6`, `RELEASE 59`
-    //   src/png.h:319   `#define PNG_LIBPNG_VER 10659 /* 1.6.59 */`
-    // This is the version of the C library this package builds, not a version
-    // of the Zig wrapper. `build.zig` compares it against the same constants
-    // read out of that header and refuses to configure if they disagree, so
-    // this string, the pkg-config `Version:` field, the shared object's file
-    // name and the generated `pnglibconf.h` banner cannot describe four
-    // different releases.
     .version = "1.6.59",
-    // `.fingerprint` is deliberately absent.
-    //
-    // A package fingerprint is an identifier the Zig toolchain *derives* for a
-    // named package. Deriving one here would mean running the compiler, and no
-    // gate has been run for this package yet, so any value written now would be
-    // an invented identifier (AGENTS.md rule 3: do not fabricate identifiers).
-    // The first observed `zig build` reports the value the toolchain computes
-    // for `.libpng`; the driver records it in FORK-NOTES.md and adds it here in
-    // the same change. Nothing in this package's source, build graph or tests
-    // reads it.
     .minimum_zig_version = "0.16.0",
-    // One sibling, and it is not optional: libpng is a zlib binding.
-    // `src/pngstruct.h:27` is the single `#include "zlib.h"` in the whole
-    // compiled core, reached from `src/pngpriv.h:1020`; `src/png.c:143,186`
-    // calls `crc32`, `src/pngrutil.c:485-506` and `src/pngread.c:799` the
-    // `inflate*` family, and `src/pngwutil.c:412-435` and
-    // `src/pngwrite.c:993` the `deflate*` family, so the 16 C units do not
-    // compile without a zlib on the include line and the archive does not link
-    // without one to resolve those names. `.path` rather than a registry
-    // reference: the sibling lives at `../zlib` in this workspace and is
-    // compiled from its own vendored source there.
     .dependencies = .{
         .zlib = .{ .path = "../zlib" },
     },
     .paths = .{
-        // The build graph and this manifest.
         "build.zig",
         "build.zig.zon",
-        // The cross-test harness profile for this package. It is a file in the
-        // package because it is how this package declares what its
-        // cross-platform gate is: `cross-test` discovers it by name from the
-        // package root, and it is settings only - the standard `zig build test`
-        // step over the full published platform matrix, no target subset and no
-        // host path. Nothing in build.zig reads it.
         "cross-test.profile.sh",
-        // `zig/root.zig` is the typed facade, `zig/translate.h` the one
-        // aggregate header translate-c reads. Both travel because a dependent
-        // reaches them through `dep.module("libpng")`.
         "zig",
-        // Upstream's own tree, exactly as the release tarball unpacks it: the
-        // complete libpng 1.6.59 release source closure - the 16 C units of
-        // `src/Makefile.am:127-129`, every public and private header, the
-        // vendored `scripts/pnglibconf.h.prebuilt` this package's generator
-        // reads, `scripts/libpng.pc.in`, the manual pages, `LICENSE`,
-        // `REUSE.toml`, `CMakeLists.txt`, `example.c` and the rest.
-        //
-        // It travels as a bare directory rather than a hand-picked file list so
-        // the tree a dependent receives is upstream's tree: nothing here is
-        // edited, re-entered or regenerated, and a build that needed a file not
-        // in the closure would have to edit upstream to get it.
-        //
-        // `src` is safe as a bare directory entry because *nothing is ever
-        // written into it*. The one generated input this package has,
-        // `pnglibconf.h`, is written by a `Run` step whose output is a build-
-        // cache file (`Step.Run.addOutputFileArg`,
-        // `lib/std/Build/Step/Run.zig:279`), and its directory is put on the
-        // include path from there. No step writes to `b.path("src")` or any
-        // descendant of it, and `zig-out/` and `.zig-cache/` are outside it.
-        // Upstream's own ignore file is preserved untouched at `src/.gitignore`;
-        // this build graph does not consult it and does not write there.
         "src",
-        // The behavioural test root and the smoke example. `check` compiles
-        // both for every cross target, so they are part of the gate rather than
-        // scaffolding.
         "tests.zig",
         "smoke.zig",
-        // The handshake-equivalent fixtures: the PNG images this package's
-        // tests read. Recorded with their provenance in UPSTREAM.md and digested
-        // in UPSTREAM.sha256. They are inputs to this package's tests, so they
-        // must travel with it.
         "fixtures",
-        // The consumer package, as three explicit files: it is a separate
-        // package with its own manifest, and naming its directory would also
-        // pick up its own build cache and output tree.
         "consumer/build.zig",
         "consumer/build.zig.zon",
         "consumer/src/main.zig",
-        // `tools/pnglibconf.zig` is the deterministic host generator
-        // `build.zig` builds and runs to produce `pnglibconf.h`; it is part of
-        // the build graph a dependent runs, so it travels with the package.
-        // `tools/make-fixtures.py` and `tools/check-provenance.sh` are the
-        // provenance records' own tooling.
         "tools",
-        // The runtime-loading dispatch. It travels because a dependent built
-        // with `-Druntime=true` gets it through the published module rather
-        // than from its own tree. The sync prefix for this package is
-        // `libpng_rt`, spelled identically in `runtime/graph.zig` and
-        // `runtime/library.zig`.
         "runtime",
-        // Upstream's README under this package's naming, so the exact upstream
-        // text stays readable next to this fork's own README.
-        // `tools/check-provenance.sh` fails if it stops being the imported
-        // bytes (`src/README` for this package).
         "README.upstream.md",
-        // The provenance records: the pin, the digests, the licence inventory,
-        // this fork's own grant, the changelog and the working notes.
         "UPSTREAM.md",
         "UPSTREAM.sha256",
         "README.md",
@@ -133,27 +30,10 @@
         "CHANGELOG.md",
         "FORK-NOTES.md",
         "FORK-LICENSE.md",
-        // The Nix and devenv entry points, and the direnv one-liner.
         "package.nix",
         "flake.nix",
         "devenv.nix",
         "devenv.yaml",
         ".envrc",
-        // `flake.lock` and `devenv.lock` are deliberately NOT named here. Both
-        // are driver-owned; naming a path that is not there would make
-        // `zig fetch` hash a missing entry. The same is true of any lock file
-        // the consumer package gains later: it belongs to the driver and is
-        // absent from this list until it exists.
-        //
-        // No build output is named either, and that is deliberate rather than
-        // an oversight. `.zig-cache/`, `zig-out/`, `zig-pkg/`,
-        // `consumer/.zig-cache/`, `consumer/zig-out/` and `consumer/zig-pkg/`
-        // are the Zig build cache, install tree and materialised package trees
-        // for this package and for the nested consumer build `zig build
-        // consumer` launches; `result` is the Nix flake output symlink; and
-        // `.devenv/` and `.direnv/` are shell state from the development
-        // environment. None of them is part of a package, and every one of them
-        // is ignored by this package's `.gitignore`, so an ignored path can
-        // never become a package entry either.
     },
 }

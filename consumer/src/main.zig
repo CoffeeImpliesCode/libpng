@@ -1,53 +1,17 @@
 // SPDX-License-Identifier: MIT
 // See ../FORK-LICENSE.md for what that identifier covers.
 
-//! Consumes the `libpng` package the way an outside project would.
-//!
-//! Everything here goes through the published surface only: `dep.module` in
-//! `build.zig`, and `@import("libpng")` here. No path reaches into the library's
-//! own tree and no file is read at run time, so if this builds and produces the
-//! answers below, the module contract is real: the typed facade, the translated
-//! headers it re-exports as `c`, and the native library behind both arrived
-//! through one dependency line.
-//!
-//! ## The answers are not this code talking to itself
-//!
-//! A round trip proves only that the two halves agree. Every check below is
-//! stated against a value from outside the library:
-//!
-//!   * **The container.** ISO/IEC 15948 is parsed *by this program*, from the
-//!     fixture bytes alone: the eight-byte signature of §5.1, the chunk framing
-//!     of §5.3, the CRC-32 of §5.5 over each chunk's type and data, and the
-//!     13-byte IHDR payload layout of §5.6. None of that goes through libpng, so
-//!     a decoder that agreed with itself about a malformed file would still fail
-//!     here.
-//!   * **The pixels.** The expected samples are the ones
-//!     `../tools/make-fixtures.py` states in decimal, written out of ISO/IEC
-//!     15948's filter definitions rather than out of any decoder.
-//!   * **The bytes.** Each fixture's SHA-256 and byte length, as
-//!     `../tools/check-fixtures.py`, `../UPSTREAM.md` and `../CHANGELOG.md` all
-//!     record them. This program recomputes both from the bytes it was given, so
-//!     a fixture edited underneath the tests becomes a failure instead of a
-//!     weakened check.
-//!
-//! The same source builds against a linked package and against a
-//! runtime-loaded one. `libpng.runtime_loaded` is a comptime constant, so the
-//! difference is one branch and no duplicated program: in the runtime-loaded
-//! build the provider is named on the command line (`--provider <path>`) or in
-//! `LIBPNG_TEST_PROVIDER`, loaded once, and the same answers follow.
+//! End-to-end consumer for the published libpng dependency.
+//! Checks fixture bytes, decoded pixels, encoding, and documented error boundaries.
 
 const std = @import("std");
 const libpng = @import("libpng");
 
-/// A runtime-loading build has no provider until one is named.
+/// Runtime-loaded builds require an explicit provider.
 const ConfigurationError = error{NoProviderConfigured};
 
-/// The provider this run should load, from `--provider <path>` or from
-/// `LIBPNG_TEST_PROVIDER`.
-///
-/// Both are explicit. Nothing here looks in a default location, and a build
-/// that was not told which file to load says so rather than loading something
-/// else.
+/// Selects the provider from `--provider <path>` or `LIBPNG_TEST_PROVIDER`.
+/// No implicit search or fallback is performed.
 fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
     const args = init.minimal.args.toSlice(init.arena.allocator()) catch
         return noProvider();
@@ -62,8 +26,6 @@ fn providerRequest(init: std.process.Init) ConfigurationError![]const u8 {
         return noProvider();
 }
 
-/// Say which variable is missing. An error name on its own would send the next
-/// person into the loader instead of to the command line.
 fn noProvider() ConfigurationError {
     std.debug.print(
         "consumer: this is a runtime-loading build. Pass --provider <path>, or " ++
@@ -75,22 +37,11 @@ fn noProvider() ConfigurationError {
     return error.NoProviderConfigured;
 }
 
-/// A line label built for one diagnostic. Nothing freed: `main` allocates this
-/// from the process arena, and a check that is about to fail does not need its
-/// own bookkeeping.
 fn label(allocator: std.mem.Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
     return std.fmt.allocPrint(allocator, fmt, args) catch @panic("OOM");
 }
 
-// ---------------------------------------------------------------------------
-// The fixtures, and the digests this repository records for them
-// ---------------------------------------------------------------------------
-
-/// `fixtures/grey8x8-200.png`: 8x8, 8-bit greyscale, one flat block of 200.
-///
-/// The same 71 bytes the fixture file holds, embedded rather than read from a
-/// path: a gate that depends on a working directory can pass for the wrong
-/// reason. `sha256` and `length` are `tools/check-fixtures.py:41-45`.
+/// Embedded greyscale fixture with an independently recorded digest.
 const grey8x8_200_png =
     "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52" ++
     "\x00\x00\x00\x08\x00\x00\x00\x08\x08\x00\x00\x00\x00\xE1\x64\xE1" ++
@@ -98,11 +49,7 @@ const grey8x8_200_png =
     "\x94\x31\x00\x08\xB1\x32\x01\xB5\xC0\xAB\x65\x00\x00\x00\x00\x49" ++
     "\x45\x4E\x44\xAE\x42\x60\x82";
 
-/// `fixtures/rgb4x3.png`: 4x3, 8-bit truecolour, the rows written out in full in
-/// `tools/make-fixtures.py:163-167`. Row 2 is four arbitrary triples that are
-/// neither 0 nor 255, so a decoder that clamped, truncated or rounded
-/// differently would be caught. `sha256` and `length` are
-/// `tools/check-fixtures.py:46-50`.
+/// RGB fixture with nontrivial samples and an independently recorded digest.
 const rgb4x3_png =
     "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52" ++
     "\x00\x00\x00\x04\x00\x00\x00\x03\x08\x02\x00\x00\x00\x3B\x96\x39" ++
@@ -112,10 +59,7 @@ const rgb4x3_png =
     "\xA3\x53\x7F\x0C\x57\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60" ++
     "\x82";
 
-/// `fixtures/rgba2x2.png`: 2x2, 8-bit truecolour with alpha, the rows in
-/// `tools/make-fixtures.py:177-180`. Alpha covers both ends of the range and
-/// both midpoints, and one pixel is fully transparent. `sha256` and `length`
-/// are `tools/check-fixtures.py:51-55`.
+/// RGBA fixture with transparent, midpoint, and opaque alpha values.
 const rgba2x2_png =
     "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A\x00\x00\x00\x0D\x49\x48\x44\x52" ++
     "\x00\x00\x00\x02\x00\x00\x00\x02\x08\x06\x00\x00\x00\x72\xB6\x0D" ++
@@ -123,27 +67,19 @@ const rgba2x2_png =
     "\x0C\x0C\x0E\x8C\x40\xB2\x81\x81\xF1\x7F\x3D\x00\x1B\x99\x04\x40" ++
     "\x09\x68\x4A\xA8\x00\x00\x00\x00\x49\x45\x4E\x44\xAE\x42\x60\x82";
 
-/// One fixture's declared shape, as ISO/IEC 15948 states it.
-///
-/// These are the numbers a consumer writes down from the specification before
-/// running anything. None of them is read back out of a decode.
+/// Fixture metadata and specification-derived expectations.
 const Declared = struct {
     name: []const u8,
-    /// The file, byte for byte.
     bytes: []const u8,
-    /// Its SHA-256, as `tools/check-fixtures.py` records it.
     sha256: []const u8,
-    /// Its byte length, from the same table.
     length: usize,
     width: u32,
     height: u32,
     bit_depth: c_int,
     color_type: libpng.ColorType,
-    /// `PNG_INTERLACE_NONE` (ISO/IEC 15948 table 24, value 0).
     interlace: libpng.Interlace,
-    /// `png_get_rowbytes`: width times channels at 8 bits per sample, unpadded.
+    /// Expected unpadded row size from width, depth, and channel count.
     row_bytes: usize,
-    /// The decoded rows, top row first, concatenated and unpadded.
     pixels: []const u8,
 };
 
@@ -196,11 +132,7 @@ const declared = [_]Declared{
     },
 };
 
-/// The colour-type codes ISO/IEC 15948 table 11 assigns, which are the values
-/// upstream publishes as `PNG_COLOR_TYPE_GRAY`, `PNG_COLOR_TYPE_RGB` and
-/// `PNG_COLOR_TYPE_RGBA` (`src/png.h:666-673`). The container check compares
-/// against these literals rather than against the facade's enum, so a facade
-/// that mislabelled its own enum could not make that check agree.
+// ISO/IEC 15948 colour-type codes, independent of the facade enum.
 const png_color_type_greyscale: u8 = 0;
 const png_color_type_rgb: u8 = 2;
 const png_color_type_rgba: u8 = 6;
@@ -213,8 +145,6 @@ pub fn main(init: std.process.Init) !void {
     var stdout = std.Io.File.stdout().writerStreaming(io, &buffer);
     const w = &stdout.interface;
 
-    // In a runtime-loading build every call below goes through a table that this
-    // one call fills. In a linked build the branch is not analyzed at all.
     if (comptime libpng.runtime_loaded) {
         try libpng.load(.{ .path = try providerRequest(init) });
     }
@@ -224,32 +154,16 @@ pub fn main(init: std.process.Init) !void {
         if (libpng.runtime_loaded) "loaded" else "linked",
     });
 
-    // The load-time ABI self-check this repository's README.md names, reached
-    // through the published module's own raw route. libpng exports no version
-    // symbol: `PNG_LIBPNG_VER_STRING` and `PNG_LIBPNG_VER` are compile-time
-    // constants in the generated `pnglibconf.h`, so the only two things a caller
-    // can ask the library itself are these (`src/png.h:920`, `src/png.h:2574`).
-    //
-    // They are printed as well as compared: a version string is provenance, and
-    // AGENTS.md §7 keeps version pinning in the provenance gate. The pixels
-    // below are what this program decides on.
+    // Check both provider-reported version values through the public raw module;
+    // generated constants alone do not prove which provider loaded.
     try w.print("png_access_version_number {d}\n", .{
         libpng.c.png_access_version_number(),
     });
-    // `png_get_libpng_ver` returns a `[*:0]const u8`, so the printed form is
-    // the sentinel-terminated slice that pointer names; the `orelse "<null>"`
-    // branch could not be peer'd with it because a string literal is
-    // `*const [6:0]u8`, not a C pointer.
     try w.print("png_get_libpng_ver {s}\n", .{
         std.mem.span(libpng.c.png_get_libpng_ver(null)),
     });
     try checkInt(w, "the provider reports libpng 1.6.59", libpng.c.png_access_version_number(), 10659);
 
-    // The container, parsed here rather than through libpng, and the pixels,
-    // decoded through libpng and compared against the specification's numbers.
-    // `inline for`, so `fixture` is comptime-known and every
-    // `fixture.name ++ "..."` label is a comptime slice. `declared` is a
-    // `const` array of literals, so the three iterations cost nothing.
     inline for (declared) |fixture| {
         try checkDigest(w, fixture);
         try checkContainer(w, allocator, fixture);
@@ -265,16 +179,8 @@ pub fn main(init: std.process.Init) !void {
     try w.flush();
 }
 
-// ---------------------------------------------------------------------------
-// 1. The bytes are the bytes this repository records
-// ---------------------------------------------------------------------------
-
-// `comptime fixture`, so every `fixture.name ++ "..."` label in this function
-// is a comptime slice. The caller reaches it through an `inline for`, which is
-// what makes the value comptime-known at the call site.
 fn checkDigest(w: *std.Io.Writer, comptime fixture: Declared) !void {
-    // `std.crypto.sha2` does not exist in Zig 0.16.0. The pinned stdlib
-    // re-exports the module as `std.crypto.hash.sha2` (`lib/std/crypto.zig:146`).
+    // Zig 0.16 re-exports SHA-256 as `std.crypto.hash.sha2`.
     const Sha256 = std.crypto.hash.sha2.Sha256;
     var digest: [Sha256.digest_length]u8 = undefined;
     Sha256.hash(fixture.bytes, &digest, .{});
@@ -283,26 +189,17 @@ fn checkDigest(w: *std.Io.Writer, comptime fixture: Declared) !void {
     try checkInt(w, fixture.name ++ " byte length", fixture.bytes.len, fixture.length);
 }
 
-// ---------------------------------------------------------------------------
-// 2. The container, from ISO/IEC 15948 and from nothing else
-// ---------------------------------------------------------------------------
-
-/// One PNG chunk as this program parsed it, with nothing from libpng in it.
+/// Parsed chunk data and the declared and recomputed CRC values.
 const Chunk = struct {
     kind: []const u8,
     data: []const u8,
-    /// The CRC-32 the file carries, big-endian on the wire (§5.5).
+    /// CRC carried by the file.
     declared: u32,
-    /// The CRC-32 recomputed here over the type and the data (§5.5).
+    /// CRC recomputed over the type and data.
     computed: u32,
 };
 
-/// Walks the chunk stream of `bytes` and returns the chunks.
-///
-/// §5.1 gives the eight-byte signature; §5.3 gives what follows it: a sequence
-/// of chunks, each a 4-byte big-endian length, a 4-byte type, that many bytes of
-/// data, and a 4-byte CRC. §5.5 gives the CRC's cover, which is the type field
-/// and the data and not the length.
+/// Parses the PNG chunk stream and returns its records.
 fn parseChunks(bytes: []const u8, out: []Chunk) ![]Chunk {
     if (bytes.len < libpng.signature.len) return error.Truncated;
     for (libpng.signature, 0..) |byte, i| {
@@ -338,15 +235,11 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixt
     var storage: [8]Chunk = undefined;
     const chunks = try parseChunks(fixture.bytes, &storage);
 
-    // §5.6: the first chunk of every PNG file is IHDR, and its payload is
-    // exactly 13 bytes: width and height as 4-byte big-endian integers, then
-    // bit depth, colour type, compression method, filter method and interlace
-    // method as one byte each.
+    // ISO/IEC 15948 §5.6 defines IHDR's 13-byte field order.
     try checkString(w, fixture.name ++ ": first chunk", chunks[0].kind, "IHDR");
     try checkInt(w, fixture.name ++ ": IHDR length", chunks[0].data.len, 13);
 
-    // The header fields are read out of the payload here, so a decoder that
-    // agreed with the encoder about a wrong geometry would still be caught.
+    // Read fields directly from bytes, independent of the decoder.
     try checkInt(w, fixture.name ++ ": IHDR width", std.mem.readInt(u32, chunks[0].data[0..4], .big), fixture.width);
     try checkInt(w, fixture.name ++ ": IHDR height", std.mem.readInt(u32, chunks[0].data[4..8], .big), fixture.height);
     try checkInt(w, fixture.name ++ ": IHDR bit depth", chunks[0].data[8], @as(u8, @intCast(fixture.bit_depth)));
@@ -354,12 +247,10 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixt
         .greyscale => png_color_type_greyscale,
         .rgb => png_color_type_rgb,
         .rgba => png_color_type_rgba,
-        // No fixture above declares these two, so nothing reaches the arm; the
-        // compile error names the gap instead of guessing a code for it.
+        // Unsupported fixture colour types fail at compile time.
         .greyscale_alpha, .indexed => @compileError("no fixture declares this colour type"),
     });
-    // §5.6: compression method 0 and filter method 0 are the only values this
-    // version of the specification defines.
+    // ISO/IEC 15948 defines only compression and filter method zero.
     try checkInt(w, fixture.name ++ ": IHDR compression method", chunks[0].data[10], 0);
     try checkInt(w, fixture.name ++ ": IHDR filter method", chunks[0].data[11], 0);
     try checkInt(w, fixture.name ++ ": IHDR interlace method", chunks[0].data[12], 0);
@@ -368,8 +259,7 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixt
     for (chunks) |chunk| {
         try checkInt(
             w,
-            // `chunk.kind` is parsed at run time, so this label cannot be a
-            // comptime concatenation. `label` builds it in the arena.
+            // `label` builds a runtime string from the parsed chunk type.
             label(allocator, "{s}: {s} CRC-32", .{ fixture.name, chunk.kind }),
             chunk.declared,
             chunk.computed,
@@ -386,10 +276,6 @@ fn checkContainer(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixt
     }
     try checkInt(w, fixture.name ++ ": IDAT chunk count", idat, 1);
 }
-
-// ---------------------------------------------------------------------------
-// 3. The pixels, through libpng and against the specification's numbers
-// ---------------------------------------------------------------------------
 
 fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixture: Declared) !void {
     var source = libpng.Source.init(fixture.bytes);
@@ -411,11 +297,7 @@ fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixture
     try checkInt(w, fixture.name ++ ": colour type", @intFromEnum(header.color_type), @intFromEnum(fixture.color_type));
     try checkInt(w, fixture.name ++ ": interlace", @intFromEnum(header.interlace), @intFromEnum(fixture.interlace));
 
-    // `png_get_rowbytes` is "number of bytes needed to hold a transformed row"
-    // (`src/png.h:1936`), and at 8 bits per sample that is width times channels
-    // with nothing padded on. Channels is 1 for colour type 0, 3 for colour type
-    // 2 and 4 for colour type 6 (ISO/IEC 15948 table 11), which is where
-    // `row_bytes` above comes from.
+    // At 8-bit depth, row bytes are width times channels with no padding.
     try checkInt(w, fixture.name ++ ": png_get_rowbytes", try reader.rowBytes(), fixture.row_bytes);
 
     var rows = try libpng.Rows.alloc(allocator, fixture.height, fixture.row_bytes);
@@ -434,19 +316,11 @@ fn checkPixels(w: *std.Io.Writer, allocator: std.mem.Allocator, comptime fixture
     }
 }
 
-// ---------------------------------------------------------------------------
-// 4. The writing side
-// ---------------------------------------------------------------------------
-
 fn checkWrite(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
-    // The 4x3 truecolour pixels again, encoded here through the published
-    // facade. The produced file is then parsed with the same ISO/IEC 15948
-    // checks the fixtures went through, so the encoder is measured against the
-    // specification rather than against the decoder.
+    // Encode the RGB fixture, then validate the output from its PNG bytes.
     const fixture = declared[1];
 
-    // A sink far larger than the file, so `SinkOverflow` is not what this is
-    // measuring; the overflow boundary has its own check below.
+    // Keep the buffer large so the separate overflow check measures the limit.
     var storage: [4096]u8 = undefined;
     var sink = libpng.Sink.init(&storage);
 
@@ -485,18 +359,13 @@ fn checkWrite(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
     for (chunks) |chunk| {
         try checkInt(
             w,
-            // `chunk.kind` is parsed from the encoded bytes at run time, so
-            // this label is built rather than concatenated at comptime.
             label(allocator, "encoded: {s} CRC-32", .{chunk.kind}),
             chunk.declared,
             chunk.computed,
         );
     }
 
-    // The round trip, and nothing more: it compares this build's encoder with
-    // this build's decoder. The three fixtures above are what make that
-    // comparison meaningful, because their pixels came from ISO/IEC 15948 and
-    // from neither half of this program.
+    // Independent expected pixels prevent encoder/decoder agreement from masking errors.
     var source = libpng.Source.init(produced);
     var reader = try libpng.Reader.open();
     defer reader.deinit();
@@ -517,27 +386,20 @@ fn checkWrite(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 5. The boundaries the facade documents
-// ---------------------------------------------------------------------------
-
 fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
-    // A signature that is not PNG's is refused before any libpng state exists,
-    // so this is `error.NotPng` and not an abort through `png_longjmp`.
+    // A non-PNG signature is rejected before libpng state exists.
     var not_png = libpng.Source.init("this is not a PNG file, it is only text\x00\xff");
     try checkInt(w, "a non-PNG source has no signature", @intFromBool(not_png.hasSignature()), 0);
     var reader = try libpng.Reader.open();
     defer reader.deinit();
     try checkError(w, "readInfo refuses a non-PNG", reader.readInfo(&not_png) == error.NotPng);
 
-    // Eight bytes are not enough for a signature either: `png_sig_cmp` compares
-    // only what it was given (`src/png.c:87-97`).
+    // `png_sig_cmp` compares only the bytes it receives.
     var short = libpng.Source.init(libpng.signature[0..7]);
     try checkInt(w, "seven signature bytes are not a signature", @intFromBool(short.hasSignature()), 0);
 
-    // A row buffer whose row size is not the one `png_get_rowbytes` reports is
-    // refused before `png_read_image` writes through a pointer, because libpng
-    // takes no length there and cannot check it itself.
+    // Reject a mismatched row stride before C writes through an unchecked pointer.
+    // libpng's `png_read_image` receives no buffer length.
     var source = libpng.Source.init(rgb4x3_png);
     var stride_reader = try libpng.Reader.open();
     defer stride_reader.deinit();
@@ -550,15 +412,9 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
         stride_reader.readImage(&wrong) == error.RowStrideMismatch,
     );
 
-    // A sink that fills cannot become a C error: libpng's write callback returns
-    // void and cannot report one (`src/pngwio.c:31-41`). The facade records the
-    // overflow and surfaces it at the next Zig-level boundary, and says plainly
-    // that the truncated bytes it kept are not a valid file.
-    //
-    // 64 bytes is deliberate: the signature plus IHDR is 33, so `writeInfo`
-    // completes and the overflow happens on the image data, which is the path
-    // under test. A sink that filled during `writeInfo` would report the same
-    // error one call earlier.
+    // The void write callback cannot report overflow; the facade surfaces it at
+    // the next Zig boundary and marks the truncated bytes invalid.
+    // 64 bytes lets `writeInfo` finish so overflow occurs during image data.
     var tiny: [64]u8 = undefined;
     var tiny_sink = libpng.Sink.init(&tiny);
     var overflowing = try libpng.Writer.open();
@@ -584,15 +440,10 @@ fn checkErrorPaths(w: *std.Io.Writer, allocator: std.mem.Allocator) !void {
     try checkInt(w, "the full sink says so", @intFromBool(tiny_sink.hasOverflowed()), 1);
     try checkInt(w, "the full sink kept exactly what it had", tiny_sink.len, 64);
 
-    // Ownership transition: `deinit` clears the handle, so the second call is a
-    // no-op rather than a second destroy, and the object is closed.
+    // `deinit` clears the handle, making repeated calls harmless.
     overflowing.deinit();
     try checkInt(w, "deinit closes the writer", @intFromBool(overflowing.isOpen()), 0);
 }
-
-// ---------------------------------------------------------------------------
-// Reporting
-// ---------------------------------------------------------------------------
 
 fn checkInt(w: *std.Io.Writer, what: []const u8, got: anytype, expected: anytype) !void {
     try w.print("{s: <56}{d}\n", .{ what, got });
@@ -615,9 +466,6 @@ fn checkString(w: *std.Io.Writer, what: []const u8, got: []const u8, expected: [
 }
 
 fn checkBytes(w: *std.Io.Writer, what: []const u8, got: []const u8, expected: []const u8) !void {
-    // `{x}` on a byte slice is two hex digits per byte written straight to the
-    // writer, which is what makes the bytes readable as bytes with nothing
-    // allocated to say it.
     try w.print("{s: <56}{x}\n", .{ what, got });
     if (!std.mem.eql(u8, got, expected)) {
         std.debug.print("consumer: {s}: expected {x}, computed {x}\n", .{

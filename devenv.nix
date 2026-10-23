@@ -1,31 +1,8 @@
-# Canonical development environment for the libpng SDK.
-#
-# This is the environment a contributor should be in. It installs tools and
-# nothing else: `packages` deliberately does not contain the SDK's own package,
-# because entering a shell must not require building a library to have it.
-#
-# The package itself is defined once, in ./package.nix, and shared with
-# flake.nix, so the two entry points cannot describe different builds. `outputs`
-# below name that same derivation lazily -- they are attributes, not builds, so
-# nothing is realised until `devenv build outputs.static` or
-# `devenv build outputs.shared` is actually run.
-#
-# devenv.lock is not written here: the driver owns locks.
-#
-# Two facts about the environment a task actually runs in are handled once, in
-# the `let` below, and every task uses them: devenv materialises a task as a
-# generated shell program that inherits the caller's working directory, and
-# `zig build` defaults both its local cache and its install prefix to
-# directories inside the working tree. Neither is visible from a task body, and
-# both decide whether a task can find this checkout or must write into it.
-#
 # SPDX-License-Identifier: MIT
 
 { pkgs, ... }:
 
 let
-  # Kept as a value rather than inlined, so the version assertion below and the
-  # package list cannot disagree about which compiler is meant.
   zig = pkgs.zig_0_16;
 
   libpng = linkage: pkgs.callPackage ./package.nix {
@@ -33,23 +10,10 @@ let
     zig = zig;
   };
 
-  # The directory this module was evaluated against. `./.` is a path literal
-  # resolved relative to the file that names it, so it is this checkout and
-  # never the directory `devenv` was started from. `builtins.toString`
-  # converts that path instead of interpolating it into a string, so what the
-  # tasks below receive is this working tree: a plain `${./.}` would carry the
-  # path's store context and copy this whole SDK into the read-only store, and
-  # that copy is not the tree `build.zig` and `UPSTREAM.sha256` describe. No
-  # host path is written in this file -- the value is read out of the module's
-  # own location, so it tracks wherever this checkout is.
+  # Resolve this checkout from the module path, not the task's working directory.
   sdk_root = builtins.toString ./.;
 
-  # Where a task's build output goes. `zig build` keeps its local cache in
-  # `.zig-cache/` and installs into `zig-out/`, both relative to the working
-  # directory, and this checkout is a working tree on a volume mount that has to
-  # stay byte-identical. A directory the caller exported always wins and is
-  # never overwritten; otherwise it comes from `XDG_CACHE_HOME`, then `TMPDIR`,
-  # and this file names no location of its own.
+  # Keep Zig caches outside the checkout; use caller paths or XDG/TMPDIR.
   zig_caches = ''
     if [ -z "''${ZIG_LOCAL_CACHE_DIR:-}" ]; then
       if [ -n "''${XDG_CACHE_HOME:-}" ]; then
@@ -73,9 +37,7 @@ let
     fi
   '';
 
-  # The same rule with the one extra requirement a task has: it must be able to
-  # name that directory. An environment with nowhere outside the checkout to
-  # write stops here, with the reason, instead of filling the tree.
+  # Build tasks require an external cache directory.
   require_external_output = ''
     if [ -z "''${ZIG_LOCAL_CACHE_DIR:-}" ]; then
       echo "libpng devenv: ZIG_LOCAL_CACHE_DIR, XDG_CACHE_HOME and TMPDIR are all unset," >&2
@@ -85,30 +47,18 @@ let
     fi
   '';
 
-  # What every task below starts with. devenv materialises a task as a
-  # generated shell program that inherits the caller's working directory, so
-  # `devenv --from path:<sdk>` entered from a scratch project directory would
-  # otherwise run each of these bodies where there is no `build.zig` and no
-  # `UPSTREAM.sha256`. A per-task `cwd` would not reach that generated
-  # program, and `$DEVENV_ROOT` is the scratch project itself -- exactly what
-  # these bodies must not build in.
+  # Run task bodies from the SDK root, not the caller's project.
   in_sdk = ''
     ${zig_caches}
     ${require_external_output}
     cd "${sdk_root}" || exit 1
   '';
 
-  # The flags every native build here shares: this workspace's eight jobs,
-  # fixed, then the printed step list and a local cache outside the checkout.
-  # `"''$@"` stays after them, so whatever a caller appended is still passed
-  # on and still comes later; `devenv tasks run` forwards no argument of its
-  # own, so it is the empty list on that route.
   native_flags = ''
     -j8 --summary all --cache-dir "$ZIG_LOCAL_CACHE_DIR/native" "''$@"
   '';
 
-  # The consumer package is a second build graph with its own manifest, so it
-  # gets its own cache directory rather than sharing one with the library.
+  # Use a separate cache for the nested consumer build.
   consumer_flags = ''
     -j8 --summary all --cache-dir "$ZIG_LOCAL_CACHE_DIR/consumer" "''$@"
   '';
@@ -118,9 +68,7 @@ in
     zig
     pkgs.gnumake
     pkgs.pkg-config
-    # python3 is here because `tools/make-fixtures.py` is a Python program. It
-    # is an authoring tool, not a build input: the fixtures it writes are
-    # committed and digested, so no build step runs it and no gate needs it.
+    # Needed only to update the committed fixtures.
     pkgs.python3
   ];
 
@@ -131,31 +79,18 @@ in
     }
   ];
 
-  # The shell hook exports the same two directories the tasks use, by the same
-  # rule, so an ordinary `devenv shell` session also leaves this checkout alone.
-  # A value the caller exported is kept exactly as it is, and with nothing to
-  # choose from the hook chooses nothing: only a task, which has to name the
-  # directory, refuses to run.
+  # Interactive shells use the same external cache paths as tasks.
   enterShell = ''
     ${zig_caches}
   '';
 
-  # Lazy on purpose: naming a derivation realises nothing, and entering the
-  # shell does not build either variant. `devenv build outputs.<name>` is the
-  # real packaging route; the task names below print the equivalent flake
-  # command, which needs the driver-owned lock.
+  # Outputs are lazy; entering the shell does not build them.
   outputs.static = libpng "static";
   outputs.shared = libpng "dynamic";
   outputs.default = libpng "static";
 
-  # Every task name here is `namespace:name` and nothing else: devenv accepts
-  # alphanumerics, `:`, `-` and `_` in a task name and rejects anything else
-  # before any shell runs.
   tasks = {
-    # Delivery output goes outside the checkout. The default step installs, and
-    # `zig-out/` is a directory in the working tree, so the install prefix is
-    # named here; the pkg-config file and the rpath the build normalises are
-    # prefix-relative, so the installed tree is the same shape wherever it lands.
+    # Install task outputs outside the checkout.
     "sdk:build" = {
       description = ''
         Compile the 16-unit native library (default step) and install the delivery
@@ -178,8 +113,6 @@ in
       '';
     };
 
-    # These five run or compile; none of them installs, so each needs only the
-    # external cache directory.
     "sdk:test" = {
       description = "Run the behavioural tests";
       exec = ''
@@ -226,10 +159,7 @@ in
       '';
     };
 
-    # The dependent package in `consumer/`, built and run as itself. It reaches
-    # the library through the relative path dependency in its own manifest, so
-    # this is the proof that `dep.module("libpng")` works from outside this
-    # package.
+    # Build the consumer as a separate package from `consumer/`.
     "sdk:consumer" = {
       description = "Build and run the separate consumer package against this SDK";
       exec = ''
@@ -239,9 +169,6 @@ in
       '';
     };
 
-    # The checker runs against this checkout's own bytes and file set, which is
-    # what `UPSTREAM.sha256` describes, so it is entered here rather than in the
-    # directory the task happened to start in.
     "sdk:provenance" = {
       description = ''
         Check the 614 recorded upstream digests, the exact vendored file set,
@@ -255,9 +182,6 @@ in
       '';
     };
 
-    # The fixture check is separate on purpose: it has its own subject (three
-    # fork-authored files) and its own interpreter, and it is the check that
-    # keeps the independent known answers independent.
     "sdk:fixtures" = {
       description = ''
         Check the three fixture digests and sizes against the records. Provenance
@@ -269,12 +193,7 @@ in
       '';
     };
 
-    # These two are the only bodies that do not enter this checkout, and that is
-    # deliberate. They run a nested `devenv build`, which reads the project the
-    # caller entered -- under `--from path:<sdk>` that is the scratch project
-    # holding `.devenv/` and `devenv.lock` -- and its delivery output is a store
-    # path, never a directory in this tree. Changing directory here would point
-    # the nested command at a directory with no devenv state at all.
+    # Package tasks run in the caller's devenv project.
     "sdk:package:static" = {
       description = ''
         Build the static Nix variant through devenv's own lazy output. No lock

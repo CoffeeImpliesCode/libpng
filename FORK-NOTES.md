@@ -25,9 +25,9 @@ The prebuilt configuration sets `PNG_ZLIB_VERNUM` to `0`; this disables only the
 - Zig 0.17 hides passthrough args and runner toggles from the configurer; the nested consumer forwards them through `Run` and skips foreign execution when no executor is enabled.
 - The nested consumer accepts `-Dconsumer-libc-runtimes=PATH` because Zig 0.17 does not expose `--libc-runtimes` to build scripts.
 
-## Known platform boundaries
+## Known platform boundaries (observed with Zig 0.16; not rechecked on 0.17)
 
-The pre-port Zig 0.16.0 53-target matrix ran all nine tests on 20 targets, built 18 targets without a local runner, and failed to build 15 targets.
+The 53-target pre-port matrix ran all nine tests on 20 targets, built 18 targets without a local runner, and failed to build 15 targets (observed with Zig 0.16; not rechecked on 0.17).
 
 - `wasm32-wasi` fails because wasi-libc requires exception-handling support for `setjmp`/`longjmp`.
 - Build failures affect `aarch64`, `aarch64_be`, `arm`, `armeb`, `mips`, `mipsel`, `powerpc`, `x86`, and `x86_64` NetBSD; `arm`, `x86`, `powerpc`, `mips64`, and `mips64el` OpenBSD; and `wasm32-wasi`. The BSD failures occur in Zig's libc-header translation: Aro rejects NetBSD visibility pragmas, some OpenBSD targets have `size_t` conflicts, and MIPS targets lack endianness macros. Other listed BSD targets compile; their matrix status is build-only when no runner exists.

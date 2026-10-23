@@ -1,15 +1,8 @@
 .{
     .name = .libpng_consumer,
     .version = "0.1.0",
-    // The value Zig 0.16.0 printed for this package name and pre-port manifest.
-    // field was deliberately absent, because a fingerprint is an identifier the
-    // toolchain *derives* and a value written before a run would be an
-    // invented one. `zig build run` in this directory reported it:
-    //
-    //     build.zig.zon:1:2: error: missing top-level 'fingerprint' field;
-    //     suggested value: 0x317db5b607ee98ae
-    //
-    // Nothing in this package's build graph or program reads it.
+    // Zig 0.16.0 suggested this pre-port fingerprint (observed with Zig 0.16;
+    // not rechecked on 0.17).
     .fingerprint = 0x317db5b607ee98ae,
     .minimum_zig_version = "0.17.0",
     .dependencies = .{

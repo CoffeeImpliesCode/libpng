@@ -31,7 +31,8 @@
 .zig-cache/
 zig-out/
 
-# Zig 0.16 fetches dependencies into a project-local directory. This package
+# Zig 0.16 fetches dependencies into a project-local directory (observed with Zig 0.16;
+# not rechecked on 0.17). This package
 # declares one dependency, the sibling zlib, by relative path rather than by a
 # URL, so nothing is fetched -- this entry exists so that a future URL-pinned
 # dependency cannot commit a fetched tree into the repository.

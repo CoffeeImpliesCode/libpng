@@ -111,9 +111,9 @@ const declared = [_]Declared{
         .interlace = .none,
         .row_bytes = 12,
         .pixels = &.{
-            0,   0,   0,   255, 0,   0,   0,   255, 0,   0,   0,   255,
-            255, 255, 255, 128, 128, 128, 255, 255, 0,   0,   255, 255,
-            1,   2,   3,   10,  20,  30,  200, 100, 50,  7,   255, 0,
+            0,   0,   0,   255, 0,   0,   0,   255, 0,  0, 0,   255,
+            255, 255, 255, 128, 128, 128, 255, 255, 0,  0, 255, 255,
+            1,   2,   3,   10,  20,  30,  200, 100, 50, 7, 255, 0,
         },
     },
     .{
@@ -128,8 +128,8 @@ const declared = [_]Declared{
         .interlace = .none,
         .row_bytes = 8,
         .pixels = &.{
-            0,   0,   0,   0,   255, 0,   0,   64,
-            0,   255, 0,   128, 0,   0,   255, 255,
+            0, 0,   0, 0,   255, 0, 0,   64,
+            0, 255, 0, 128, 0,   0, 255, 255,
         },
     },
 };
@@ -182,7 +182,7 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn checkDigest(w: *std.Io.Writer, comptime fixture: Declared) !void {
-    // Zig 0.16 re-exports SHA-256 as `std.crypto.hash.sha2`.
+    // Zig 0.17.0 re-exports SHA-256 as `std.crypto.hash.sha2`.
     const Sha256 = std.crypto.hash.sha2.Sha256;
     var digest: [Sha256.digest_length]u8 = undefined;
     Sha256.hash(fixture.bytes, &digest, .{});

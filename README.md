@@ -17,7 +17,7 @@ No files under the vendored `src/` tree are modified. The fork adds a Zig facade
 
 ## Support matrix
 
-Pre-port baseline, recorded with Zig 0.16.0:
+Pre-port baseline (observed with Zig 0.16; not rechecked on 0.17):
 
 | Gate | Result |
 |---|---|

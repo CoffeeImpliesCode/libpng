@@ -316,7 +316,6 @@ pub fn Loader(comptime Config: type) type {
 }
 
 /// Platform dynamic-loader backend.
-
 /// One active or undrained load attempt.
 const Attempt = struct {
     /// Thread running the attempt, used for reentrancy detection.

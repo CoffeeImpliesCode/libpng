@@ -5,7 +5,10 @@
     .version = "1.6.59",
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
-        .zlib = .{ .path = "../zlib" },
+        .zlib = .{
+            .url = "git+https://github.com/CoffeeImpliesCode/zlib?ref=v1.3.2#aafe48664c0a0bbbe580aa38c2a0c7b9b3b8d4a6",
+            .hash = "zlib-1.3.2-cRllmwfYOwBD4NjkA_YtSjQpZG9yTo-lmd4Wh5mwflpi",
+        },
     },
     .paths = .{
         "build.zig",

@@ -4,7 +4,14 @@
 { lib
 , stdenv
 , zig
+, fetchFromGitHub
 , patchelf
+, zlibSrc ? fetchFromGitHub {
+    owner = "CoffeeImpliesCode";
+    repo = "zlib";
+    rev = "aafe48664c0a0bbbe580aa38c2a0c7b9b3b8d4a6";
+    hash = "sha256-NMB5sV3EBpeeqkrmmTq7IAIXRfpat+IX9EMpZtBs4M8=";
+  }
   , linkage ? "static"
   , optimize ? "ReleaseSafe"
   }:
@@ -52,7 +59,6 @@
 
     nativeBuildInputs = [ zig ] ++ lib.optional isElfTarget patchelf;
 
-    # zlib is resolved by build.zig.zon; do not declare it again here.
     propagatedBuildInputs = [ stdenv.cc.libc ];
 
     doCheck = false;
@@ -64,6 +70,8 @@
       # Keep Zig caches outside the source tree.
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
+      mkdir -p "$ZIG_GLOBAL_CACHE_DIR/p"
+      cp -r --no-preserve=mode ${zlibSrc} "$ZIG_GLOBAL_CACHE_DIR/p/zlib-1.3.2-cRllmwfYOwBD4NjkA_YtSjQpZG9yTo-lmd4Wh5mwflpi"
 
       # build.zig owns the compile flags and install layout.
       zig build install \
@@ -117,8 +125,7 @@
         it means this is the portable C configuration rather than libpng's
         full-speed x86 configuration. No parity with the latter is claimed.
       '';
-      # nixpkgs has no dedicated identifier for libpng's license (`src/LICENSE:4`).
-      license = lib.licenses.other;
+      license = lib.licenses.libpng2;
       platforms = lib.platforms.unix;
     };
   }

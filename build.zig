@@ -323,7 +323,7 @@ fn setVersionScript(
         \\    png_*;
         \\  local:
         \\    *;
-        \\}
+        \\};
     ));
 }
 
@@ -599,12 +599,15 @@ pub fn build(b: *std.Build) void {
     const check_step = b.step(
         "check",
         "Compile the native library, the facade, the tests and the example for " ++
-            "the six check targets without running any of them",
+            "the compatible check targets without running any of them",
     );
     if (!target.query.isNative()) {
         add_target_check(b, check_step, target.query, optimize, linkage, runtime_loaded, libconf);
     } else {
         for (check_targets[0..]) |query| {
+            // Filter only the automatic matrix; explicit targets keep their linkage checks.
+            if ((linkage == .dynamic or runtime_loaded) and
+                !targetHasDynamicLinker(b.resolveTargetQuery(query))) continue;
             add_target_check(b, check_step, query, optimize, linkage, runtime_loaded, libconf);
         }
     }
@@ -640,9 +643,8 @@ pub fn build(b: *std.Build) void {
         .{prebuilt_libconf},
     );
     std.debug.print(
-        "libpng: zlib comes from the sibling package `../zlib` through " ++
-            "c_mod.linkLibrary(zlib_dep.artifact(\"zlib\")), with no hand-written include " ++
-            "path and no system zlib path; that wire is PENDING-VERIFICATION\n",
+        "libpng: the zlib package dependency declared in build.zig.zon supplies " ++
+            "the archive and headers; no system zlib path is added\n",
         .{},
     );
     if (runtime_loaded) {

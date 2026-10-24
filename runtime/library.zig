@@ -90,7 +90,7 @@ pub fn Config(comptime dispatch: type) type {
             // Null is accepted by libpng; prefix comparison rejects short or mismatched strings.
             const reported = dst.png_get_libpng_ver(null);
             if (reported == null or
-                std.mem.startsWith(u8, reported.?, dispatch.PNG_LIBPNG_VER_STRING) == false)
+                std.mem.startsWith(u8, std.mem.span(reported.?), dispatch.PNG_LIBPNG_VER_STRING) == false)
             {
                 return "png_get_libpng_ver does not begin with the version string " ++
                     "this SDK's png.h defines, so this provider was built from " ++

@@ -56,6 +56,18 @@ fn decode(bytes: []const u8, allocator: std.mem.Allocator) !struct { reader: lib
     return .{ .reader = reader, .header = header, .rows = rows };
 }
 
+test "provider version string matches the translated headers" {
+    nativeReady();
+
+    const reported = libpng.c.png_get_libpng_ver(null);
+    try testing.expect(reported != null);
+    try testing.expect(std.mem.startsWith(
+        u8,
+        std.mem.span(reported),
+        libpng.c.PNG_LIBPNG_VER_STRING,
+    ));
+}
+
 test "rgb4x3.png decodes to the pixels the fixture states" {
     nativeReady();
 

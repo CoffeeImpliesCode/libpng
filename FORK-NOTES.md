@@ -13,15 +13,14 @@
 | `fixtures/` | Adds three fork-owned image fixtures. | Provide known inputs for facade tests. |
 | `consumer/` | Adds a separate package that consumes the module and library artifact. | Demonstrate the package's consumer interface. |
 
-The prebuilt configuration sets `PNG_ZLIB_VERNUM` to `0`; this disables only the compile-time zlib-header version check. The required sibling zlib dependency supplies headers and the library.
+The prebuilt configuration sets `PNG_ZLIB_VERNUM` to `0`; this disables only the compile-time zlib-header version check. The required `zlib` package dependency supplies headers and the library.
 
 ## Build graph deviations
 
 - Zig builds the 16 portable C units listed by upstream. It does not build architecture-specific SIMD units, assembly, upstream tests, examples, or `contrib/` tools.
 - `pnglibconf.h` is generated in the build cache from the upstream prebuilt header, not written into `src/`.
-- The sibling zlib dependency is required; there is no optional-zlib mode. No system zlib include path is added.
+- The `zlib` package dependency declared in `build.zig.zon` is required; there is no optional-zlib mode. No system zlib include path is added.
 - Static linkage is the default. Dynamic linkage produces `libpng16.so.16.59.0` with ELF soname `libpng16.so.16`; Darwin shared builds also export internal symbols because the build has no equivalent version script.
-- `-Druntime=true` selects explicit runtime loading. System mode is not implemented; `-Dsystem=true` is refused rather than falling back to the bundled library.
 - Zig 0.17 hides passthrough args and runner toggles from the configurer; the nested consumer forwards them through `Run` and skips foreign execution when no executor is enabled.
 - The nested consumer accepts `-Dconsumer-libc-runtimes=PATH` because Zig 0.17 does not expose `--libc-runtimes` to build scripts.
 

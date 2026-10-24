@@ -11,11 +11,14 @@ No files under the vendored `src/` tree are modified. The fork adds a Zig facade
 
 - Zig builds the same 16 portable C units named by upstream's `Makefile.am`; CMake and autotools are not used.
 - The build generates `pnglibconf.h` in the build cache from upstream's `src/scripts/pnglibconf.h.prebuilt`. Its `PNG_ZLIB_VERNUM=0` disables only the compile-time zlib-header version check.
-- The package requires the sibling zlib dependency; there is no optional-zlib configuration. Architecture-specific SIMD units are not compiled.
+- The package requires the `zlib` dependency declared in `build.zig.zon`; there is no optional-zlib configuration. Architecture-specific SIMD units are not compiled.
 - `-Dlinkage=static` is the default and builds `libpng16.a`. `-Dlinkage=dynamic` builds a shared library; on ELF, its name is `libpng16.so.16.59.0` and soname is `libpng16.so.16`.
-- `-Druntime=true` selects explicit runtime loading instead of direct linkage. The caller chooses a path or system provider; there is no fallback.
+- `-Druntime=true` selects explicit runtime loading instead of direct linkage. The caller chooses a path or system provider with `load(source)`; there is no fallback. Tests use `LIBPNG_TEST_PROVIDER` for the shared-library path.
+- Build-time system integration is unsupported: `-Dsystem=true` and `-fsys=png16` stop configuration before compilation. Runtime system-provider loading uses the bundled headers and remains available with `-Druntime=true`.
 
 ## Support matrix
+
+The default `check` matrix has six targets. With `-Dlinkage=dynamic` or `-Druntime=true`, it excludes `wasm32-wasi`, which has no dynamic loader. WASI supports only static delivery; an explicit WASI dynamic build is rejected.
 
 Pre-port baseline (observed with Zig 0.16; not rechecked on 0.17):
 
@@ -32,13 +35,15 @@ The 15 build failures are `aarch64-netbsd`, `aarch64_be-netbsd`, `arm-netbsd`, `
 
 ## Consumption
 
-For a sibling checkout, set the dependency path to the package directory:
+For a local libpng checkout, set the dependency path to the package directory:
 
 ```zig
 .dependencies = .{
     .libpng = .{ .path = "../libpng" },
 },
 ```
+
+Zlib resolves through libpng's manifest dependency; consumers need no sibling zlib checkout when that dependency uses a URL.
 
 Use the `libpng` module for the typed facade and translated declarations, and link the `png16` artifact:
 

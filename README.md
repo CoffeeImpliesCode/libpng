@@ -35,15 +35,13 @@ The 15 build failures are `aarch64-netbsd`, `aarch64_be-netbsd`, `arm-netbsd`, `
 
 ## Consumption
 
-For a local libpng checkout, set the dependency path to the package directory:
+Fetch the tagged libpng release from GitHub:
 
-```zig
-.dependencies = .{
-    .libpng = .{ .path = "../libpng" },
-},
+```sh
+zig fetch --save git+https://github.com/CoffeeImpliesCode/libpng#v1.6.59
 ```
 
-Zlib resolves through libpng's manifest dependency; consumers need no sibling zlib checkout when that dependency uses a URL.
+Zig fetches zlib through the pinned manifest URL. Nix builds populate the Zig package cache from a fixed GitHub source. Override `zlibSrc` in `package.nix` to supply another source. Development shells let Zig fetch zlib directly.
 
 Use the `libpng` module for the typed facade and translated declarations, and link the `png16` artifact:
 

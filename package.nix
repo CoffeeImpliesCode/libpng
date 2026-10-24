@@ -9,8 +9,8 @@
 , zlibSrc ? fetchFromGitHub {
     owner = "CoffeeImpliesCode";
     repo = "zlib";
-    rev = "aafe48664c0a0bbbe580aa38c2a0c7b9b3b8d4a6";
-    hash = "sha256-NMB5sV3EBpeeqkrmmTq7IAIXRfpat+IX9EMpZtBs4M8=";
+    rev = "797ee44eb7ba765c0a8efd81cd482315448b4586";
+    hash = "sha256-F97nOXPkAr/r52ndLL5/iF88qLKZ+tHgz0U13lGTJtM=";
   }
   , linkage ? "static"
   , optimize ? "ReleaseSafe"
@@ -71,7 +71,7 @@
       export ZIG_LOCAL_CACHE_DIR="$TMPDIR/zig-local-cache"
       export ZIG_GLOBAL_CACHE_DIR="$TMPDIR/zig-global-cache"
       mkdir -p "$ZIG_GLOBAL_CACHE_DIR/p"
-      cp -r --no-preserve=mode ${zlibSrc} "$ZIG_GLOBAL_CACHE_DIR/p/zlib-1.3.2-cRllmwfYOwBD4NjkA_YtSjQpZG9yTo-lmd4Wh5mwflpi"
+      cp -r --no-preserve=mode ${zlibSrc} "$ZIG_GLOBAL_CACHE_DIR/p/zlib-1.3.2-cRllmzjYOwBhITM-YZxiVxQp2TMHncrQGwj3tCUHG37h"
 
       # build.zig owns the compile flags and install layout.
       zig build install \

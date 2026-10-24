@@ -6,8 +6,8 @@
     .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .zlib = .{
-            .url = "git+https://github.com/CoffeeImpliesCode/zlib?ref=v1.3.2#aafe48664c0a0bbbe580aa38c2a0c7b9b3b8d4a6",
-            .hash = "zlib-1.3.2-cRllmwfYOwBD4NjkA_YtSjQpZG9yTo-lmd4Wh5mwflpi",
+            .url = "git+https://github.com/CoffeeImpliesCode/zlib?ref=v1.3.2#797ee44eb7ba765c0a8efd81cd482315448b4586",
+            .hash = "zlib-1.3.2-cRllmzjYOwBhITM-YZxiVxQp2TMHncrQGwj3tCUHG37h",
         },
     },
     .paths = .{

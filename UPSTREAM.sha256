@@ -15,6 +15,7 @@
 # tools/check-provenance.sh additionally rejects a missing, extra or renamed file
 # and cross-checks the release digest recorded in UPSTREAM.md.
 #
+899ba04137443be1bdfe4a29033a14135f00c75201548ee33843d90913f82a82  src/.appveyor.yml
 dc8d0a29b8c6aae896ae5cc0358c00bbe4f2108d3f5c470f555ff2c0d45e7ea3  src/.cmake-format.yaml
 ebf486a91a5fb8bdcaf3a51b0ed521fb85f698c8d62dbd08192eff4e587f0b5f  src/.editorconfig
 4b15861dc261be6924eaa00f771c1fbff360ff5cdd42a8a7a33eba5dcb29c109  src/.editorconfig-checker.json

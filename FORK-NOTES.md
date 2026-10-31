@@ -23,6 +23,8 @@ The prebuilt configuration sets `PNG_ZLIB_VERNUM` to `0`; this disables only the
 - Static linkage is the default. Dynamic linkage produces `libpng16.so.16.59.0` with ELF soname `libpng16.so.16`; Darwin shared builds also export internal symbols because the build has no equivalent version script.
 - Zig 0.17 hides passthrough args and runner toggles from the configurer; the nested consumer forwards them through `Run` and skips foreign execution when no executor is enabled.
 - The nested consumer accepts `-Dconsumer-libc-runtimes=PATH` because Zig 0.17 does not expose `--libc-runtimes` to build scripts.
+- WASI targets enable the WebAssembly exception-handling feature and compile C with `-mllvm -wasm-enable-sjlj`. The public `setjmp`/`longjmp` API requires an engine with WebAssembly exception handling; it is not replaced with abort-only error handling.
+- The installed tree includes the pinned dependency's `libzlib` artifact, public headers, and licence. `libpng16.pc` uses `Libs.private: -lzlib -lm`; plain C consumers resolve the same dependency as the Zig graph instead of requiring a system `libz`.
 
 ## Known platform boundaries (observed with Zig 0.16; not rechecked on 0.17)
 

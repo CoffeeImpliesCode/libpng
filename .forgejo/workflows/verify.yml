@@ -1,0 +1,522 @@
+# Verify the fork's Zig package, not the vendored upstream CI definitions.
+#
+# provenance: immutable upstream files, licence notices and fixture digests.
+# native: both linkages, tests, smoke and the installed plain-C surface.
+# cross: six compile-only targets; no foreign test execution is claimed.
+# consumer: the published module from an independent package, both linkages.
+#
+# The same installed-C gate program checks static and dynamic deliveries.
+# All targets are mandatory. The full host-local cross-test matrix is separate.
+# CoffeeImpliesCode/zlib is fetched at the commit and content hash recorded in
+# build.zig.zon; no sibling checkout or system-zlib substitution is used.
+
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. The bytes. This job compiles nothing and is the cheapest one to read:
+  #    if it fails, nothing downstream is meaningful.
+  # ---------------------------------------------------------------------------
+  provenance:
+    name: provenance, licence notices and fixture digests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The 614 recorded digests, the exact vendored file set, the release
+      # digest recorded identically in UPSTREAM.md and UPSTREAM.sha256, the
+      # preserved upstream README bytes, and every per-file licence notice
+      # NOTICE.md names. libpng is NOT MIT -- the core is the PNG Reference
+      # Library License version 2 -- so this notice check is the only way a
+      # dropped attribution would be caught before it ships.
+      - name: immutable source, exact file set and per-file licence notices
+        run: |
+          set -euo pipefail
+          sha256sum -c UPSTREAM.sha256
+          tools/check-provenance.sh
+
+      # The three fixtures are fork-authored inputs to the behavioural tests and
+      # the reason those tests are independent answers rather than round trips.
+      # This is a digest comparison only: no image is decoded here.
+      - name: fixture digests and sizes
+        run: |
+          set -euo pipefail
+          python3 tools/check-fixtures.py
+
+  # ---------------------------------------------------------------------------
+  # 2. The native graph: build, tests, smoke, and the installed C surface, in
+  #    both linkages against one shared C program.
+  # ---------------------------------------------------------------------------
+  native:
+    name: native build, tests, smoke and installed C surface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+
+      # Written once, used by both linkages below. Every reference is computed
+      # in C arithmetic and compared against an independently derived value; a
+      # program that only asked libpng whether it agreed with itself would not
+      # pass them.
+      - name: write the installed-C gate program
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/png_surface_gate.c" <<'C'
+
+          /* The one thing an installed C consumer has to get right that a
+             translated-header consumer does not: png.h does not include
+             <stdio.h> or <setjmp.h> itself. src/png.h's entire include closure
+             is pnglibconf.h (src/png.h:328) and pngconf.h (src/png.h:333), and
+             src/pngconf.h:30-31 includes only <limits.h> and <stddef.h> -- yet
+             src/png.h:1629 declares png_init_io(..., FILE *fp) under
+             PNG_STDIO_SUPPORTED and src/png.h:971 declares png_set_longjmp_fn
+             (..., jmp_buf *, ...) under PNG_SETJMP_SUPPORTED. So stdio.h goes
+             first here, and it is the documented expectation for every C
+             consumer of the installed headers. */
+          #include <stdio.h>
+          #include <setjmp.h>
+
+          #include <png.h>
+
+          #include <string.h>
+
+          /* The ABI self-check, not a name check: libpng exports no version
+             symbol, so these two functions are what exists.
+               src/png.h:319   PNG_LIBPNG_VER 10659
+               src/png.h:277   PNG_LIBPNG_VER_STRING "1.6.59"
+             Both are declared by the header this program compiled against, so
+             the constants below and the ones the program was built with are
+             the same bytes; the check is that the *library* answers the same. */
+          static int check_version(void) {
+            if (png_access_version_number() != 10659) {
+              fprintf(stderr, "version number is %u, expected 10659\n",
+                      (unsigned)png_access_version_number());
+              return 1;
+            }
+            return 0;
+          }
+
+          /* An independent known answer. fixtures/rgb4x3.png is 4x3, colour
+             type 2 (RGB), bit depth 8, row filters none / Sub / none. The
+             expected pixels were computed by hand from ISO/IEC 15948 and
+             written into tools/make-fixtures.py before anything ran; they are
+             restated here rather than read back out of the decoded image. */
+          static const unsigned char expected_rgb4x3[3][4][3] = {
+            { {  0,   0,   0}, {255,   0,   0}, {  0, 255,   0}, {  0,   0, 255} },
+            { {255, 255, 255}, {128, 128, 128}, {255, 255,   0}, {  0, 255, 255} },
+            { {  1,   2,   3}, { 10,  20,  30}, {200, 100,  50}, {  7, 255,   0} },
+          };
+
+          static int check_rgb4x3(const char *path) {
+            png_image image;
+            unsigned char pixels[4 * 3 * 4];
+            unsigned row, col;
+            FILE *fp;
+
+            memset(&image, 0, sizeof image);
+            image.version = PNG_IMAGE_VERSION;
+
+            fp = fopen(path, "rb");
+            if (fp == NULL) {
+              fprintf(stderr, "cannot open %s\n", path);
+              return 1;
+            }
+            if (png_image_begin_read_from_file(&image, path) == 0) {
+              fprintf(stderr, "%s: %s\n", path, image.message);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+
+            /* The header itself has to answer the values the fixture was
+               written to have -- a decoder that produced the right pixels from
+               a wrongly-read header has not read the file correctly. */
+            if (image.width != 4 || image.height != 3) {
+              fprintf(stderr, "%s is %ux%u, expected 4x3\n", path,
+                      (unsigned)image.width, (unsigned)image.height);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+
+            image.format = PNG_FORMAT_RGB;
+            if (png_image_finish_read(&image, NULL, pixels, 4 * 3, NULL) == 0) {
+              fprintf(stderr, "%s: %s\n", path, image.message);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            /* png_image_free releases what libpng allocated, exactly once. */
+            png_image_free(&image);
+            fclose(fp);
+
+            for (row = 0; row < 3; row++) {
+              for (col = 0; col < 4; col++) {
+                const unsigned char *got =
+                    pixels + row * (4 * 3) + col * 3;
+                const unsigned char *want = expected_rgb4x3[row][col];
+                if (got[0] != want[0] || got[1] != want[1] || got[2] != want[2]) {
+                  fprintf(stderr,
+                          "pixel (%u,%u) is (%u,%u,%u), expected (%u,%u,%u)\n",
+                          col, row, got[0], got[1], got[2],
+                          want[0], want[1], want[2]);
+                  return 1;
+                }
+              }
+            }
+            return 0;
+          }
+
+          /* A second independent answer, with an alpha ramp that a decoder
+             which drops or clamps alpha cannot reproduce. */
+          static const unsigned char expected_rgba2x2[2][2][4] = {
+            { {  0,   0, 0,   0}, {255,   0, 0,  64} },
+            { {  0, 255, 0, 128}, {  0,   0, 255, 255} },
+          };
+
+          static int check_rgba2x2(const char *path) {
+            png_image image;
+            unsigned char pixels[2 * 2 * 4];
+            unsigned row, col;
+            FILE *fp;
+
+            memset(&image, 0, sizeof image);
+            image.version = PNG_IMAGE_VERSION;
+
+            fp = fopen(path, "rb");
+            if (fp == NULL) {
+              fprintf(stderr, "cannot open %s\n", path);
+              return 1;
+            }
+            if (png_image_begin_read_from_file(&image, path) == 0) {
+              fprintf(stderr, "%s: %s\n", path, image.message);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            if (image.width != 2 || image.height != 2) {
+              fprintf(stderr, "%s is %ux%u, expected 2x2\n", path,
+                      (unsigned)image.width, (unsigned)image.height);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            image.format = PNG_FORMAT_RGBA;
+            if (png_image_finish_read(&image, NULL, pixels, 2 * 4, NULL) == 0) {
+              fprintf(stderr, "%s: %s\n", path, image.message);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            png_image_free(&image);
+            fclose(fp);
+
+            for (row = 0; row < 2; row++) {
+              for (col = 0; col < 2; col++) {
+                const unsigned char *got = pixels + row * (2 * 4) + col * 4;
+                const unsigned char *want = expected_rgba2x2[row][col];
+                if (got[0] != want[0] || got[1] != want[1] ||
+                    got[2] != want[2] || got[3] != want[3]) {
+                  fprintf(stderr,
+                          "pixel (%u,%u) is (%u,%u,%u,%u), expected "
+                          "(%u,%u,%u,%u)\n",
+                          col, row, got[0], got[1], got[2], got[3],
+                          want[0], want[1], want[2], want[3]);
+                  return 1;
+                }
+              }
+            }
+            return 0;
+          }
+
+          /* A flat greyscale image: every sample exactly 200. This is the one
+             that catches a decoder which loses a row or shifts the image by
+             one, because there is no spatial detail to hide the shift. */
+          static int check_grey8x8(const char *path) {
+            png_image image;
+            unsigned char pixels[8 * 8];
+            unsigned i;
+            FILE *fp;
+
+            memset(&image, 0, sizeof image);
+            image.version = PNG_IMAGE_VERSION;
+
+            fp = fopen(path, "rb");
+            if (fp == NULL) {
+              fprintf(stderr, "cannot open %s\n", path);
+              return 1;
+            }
+            if (png_image_begin_read_from_file(&image, path) == 0) {
+              fprintf(stderr, "%s: %s\n", path, image.message);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            if (image.width != 8 || image.height != 8) {
+              fprintf(stderr, "%s is %ux%u, expected 8x8\n", path,
+                      (unsigned)image.width, (unsigned)image.height);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            image.format = PNG_FORMAT_GRAY;
+            if (png_image_finish_read(&image, NULL, pixels, 8, NULL) == 0) {
+              fprintf(stderr, "%s: %s\n", path, image.message);
+              png_image_free(&image);
+              fclose(fp);
+              return 1;
+            }
+            png_image_free(&image);
+            fclose(fp);
+
+            for (i = 0; i < 64; i++) {
+              if (pixels[i] != 200) {
+                fprintf(stderr, "sample %u is %u, expected 200\n",
+                        i, (unsigned)pixels[i]);
+                return 1;
+              }
+            }
+            return 0;
+          }
+
+          /* The longjmp path, through the public setter, because that is the
+             declaration that needs jmp_buf and therefore the reason <setjmp.h>
+             is in this file. A read struct that survives a deliberately failed
+             read must still be destroyable -- otherwise an application has no
+             way out of a bad file. */
+          static int check_longjmp_path(const char *path) {
+            png_structp png_ptr;
+            png_infop info_ptr;
+            FILE *fp;
+            volatile int reached_end = 0;
+
+            fp = fopen(path, "rb");
+            if (fp == NULL) {
+              fprintf(stderr, "cannot open %s\n", path);
+              return 1;
+            }
+            png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+            if (png_ptr == NULL) {
+              fprintf(stderr, "png_create_read_struct returned NULL\n");
+              fclose(fp);
+              return 1;
+            }
+            info_ptr = png_create_info_struct(png_ptr);
+            if (info_ptr == NULL) {
+              fprintf(stderr, "png_create_info_struct returned NULL\n");
+              png_destroy_read_struct(&png_ptr, NULL, NULL);
+              fclose(fp);
+              return 1;
+            }
+            if (setjmp(png_jmpbuf(png_ptr))) {
+              /* A setjmp target that stayed installed long enough to catch. */
+              png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+              fclose(fp);
+              if (!reached_end) {
+                return 0;   /* the error path fired as designed */
+              }
+              fprintf(stderr, "longjmp target fired with nothing wrong\n");
+              return 1;
+            }
+            png_init_io(png_ptr, fp);
+            png_read_info(png_ptr, info_ptr);
+            reached_end = 1;
+            png_read_update_info(png_ptr, info_ptr);
+            png_destroy_read_struct(&png_ptr, &info_ptr, NULL);
+            fclose(fp);
+            if (!reached_end) {
+              fprintf(stderr, "the read never completed\n");
+              return 1;
+            }
+            return 0;
+          }
+
+          int main(int argc, char **argv) {
+            if (argc != 4) {
+              fprintf(stderr, "usage: %s rgb4x3.png rgba2x2.png grey8x8.png\n", argv[0]);
+              return 2;
+            }
+            if (check_version() != 0) return 1;
+            if (check_rgb4x3(argv[1]) != 0) return 1;
+            if (check_rgba2x2(argv[2]) != 0) return 1;
+            if (check_grey8x8(argv[3]) != 0) return 1;
+            if (check_longjmp_path(argv[1]) != 0) return 1;
+            printf("every expected pixel matched and the version answered 10659\n");
+            return 0;
+          }
+          C
+
+      # ---------------------------------------------------------------- static
+      - name: build, test and smoke, static delivery
+        run: |
+          set -euo pipefail
+          zig build -Dlinkage=static --summary all
+          zig build test -Dlinkage=static --summary all
+          zig build smoke -Dlinkage=static --summary all
+
+      - name: install the static delivery
+        run: |
+          set -euo pipefail
+          zig build install -Dlinkage=static --prefix "$RUNNER_TEMP/prefix-static" --summary all
+
+      - name: the installed static tree is the documented layout
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/prefix-static"
+          # include/libpng16/{png.h,pngconf.h,pnglibconf.h} --
+          # src/Makefile.am:206-207 installs into $(includedir)/$(PNGLIB_BASENAME),
+          # which is libpng16.
+          for header in png.h pngconf.h pnglibconf.h; do
+            test -f "$prefix/include/libpng16/$header" || {
+              echo "missing $prefix/include/libpng16/$header" >&2; exit 1; }
+          done
+          test -f "$prefix/lib/libpng16.a" || {
+            echo "missing libpng16.a" >&2; exit 1; }
+          # src/Makefile.am:212 -- pkgconfig_DATA = libpng16.pc
+          test -f "$prefix/lib/pkgconfig/libpng16.pc" || {
+            echo "missing libpng16.pc" >&2; exit 1; }
+          # src/Makefile.am:117 -- dist_man_MANS = libpng.3 libpngpf.3 png.5
+          for man in man3/libpng.3 man3/libpngpf.3 man5/png.5; do
+            test -f "$prefix/share/man/$man" || {
+              echo "missing share/man/$man" >&2; exit 1; }
+          done
+          # The installed tree has to carry upstream's licence terms, which are
+          # NOT MIT -- src/LICENSE:4 is the PNG Reference Library License
+          # version 2.
+          grep -q '^PNG Reference Library License version 2$' "$prefix/share/licenses/libpng/LICENSE" || {
+            echo "the installed licence text is not the PNG Reference Library License version 2" >&2
+            exit 1; }
+          echo "the installed static tree is the documented layout"
+
+      # A plain C consumer, resolved through the installed pkg-config file. The
+      # same program is used against both linkages, so a difference between
+      # libpng16.a and libpng16.so.16 cannot hide.
+      # Debug C objects retain UBSan instrumentation; the plain C linker must
+      # supply its runtime rather than disabling sanitizers in the libraries.
+      - name: the installed C surface, through pkg-config, static delivery
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/prefix-static"
+          cc -fsanitize=undefined "$RUNNER_TEMP/png_surface_gate.c" \
+             -o "$RUNNER_TEMP/gate-static" \
+             $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags libpng16) \
+             $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --libs --static libpng16) \
+             -lm
+          "$RUNNER_TEMP/gate-static" \
+            fixtures/rgb4x3.png fixtures/rgba2x2.png fixtures/grey8x8-200.png
+
+      # --------------------------------------------------------------- dynamic
+      - name: build, test and smoke, shared delivery
+        run: |
+          set -euo pipefail
+          zig build -Dlinkage=dynamic --summary all
+          zig build test -Dlinkage=dynamic --summary all
+          zig build smoke -Dlinkage=dynamic --summary all
+
+      - name: install the shared delivery
+        run: |
+          set -euo pipefail
+          zig build install -Dlinkage=dynamic --prefix "$RUNNER_TEMP/prefix-shared" --summary all
+
+      - name: the shared object carries the names upstream's own build produces
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/prefix-shared"
+          # src/Makefile.am:178-180 -- -version-number 16:59:0 -- and
+          # src/png.h:281 -- PNG_LIBPNG_VER_SHAREDLIB 16.
+          test -f "$prefix/lib/libpng16.so.16.59.0" || {
+            echo "missing libpng16.so.16.59.0" >&2
+            ls -l "$prefix/lib" >&2
+            exit 1; }
+          soname=$(readelf -d "$prefix/lib/libpng16.so.16.59.0" | sed -n 's/.*(SONAME).*\[\(.*\)\].*/\1/p')
+          test "$soname" = "libpng16.so.16" || {
+            echo "soname is $soname, expected libpng16.so.16" >&2; exit 1; }
+          test -e "$prefix/lib/libpng16.so.16" || {
+            echo "missing the libpng16.so.16 soname link" >&2; exit 1; }
+          test -e "$prefix/lib/libpng16.so" || {
+            echo "missing the libpng16.so linker name" >&2; exit 1; }
+          echo "libpng16.so.16.59.0 with soname libpng16.so.16, as src/Makefile.am:178-180 specifies"
+
+      - name: the installed C surface, through pkg-config, shared delivery
+        run: |
+          set -euo pipefail
+          prefix="$RUNNER_TEMP/prefix-shared"
+          cc -fsanitize=undefined "$RUNNER_TEMP/png_surface_gate.c" \
+             -o "$RUNNER_TEMP/gate-shared" \
+             $(PKG_CONFIG_PATH="$prefix/lib/pkgconfig" pkg-config --cflags libpng16) \
+             -L"$prefix/lib" -lpng16 -Wl,-rpath,"$prefix/lib" -lm
+          "$RUNNER_TEMP/gate-shared" \
+            fixtures/rgb4x3.png fixtures/rgba2x2.png fixtures/grey8x8-200.png
+
+  # ---------------------------------------------------------------------------
+  # 3. The six compile targets. `zig build check` compiles and runs nothing, so
+  #    no test number may be read out of this job either way.
+  # ---------------------------------------------------------------------------
+  cross:
+    name: cross-target compile matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      - name: check x86_64-linux-gnu
+        run: zig build check -Dtarget=x86_64-linux-gnu --summary all
+
+      - name: check aarch64-linux-gnu
+        run: zig build check -Dtarget=aarch64-linux-gnu --summary all
+
+      - name: check aarch64-macos-none
+        run: zig build check -Dtarget=aarch64-macos-none --summary all
+
+      - name: check x86_64-windows-gnu
+        run: zig build check -Dtarget=x86_64-windows-gnu --summary all
+
+      - name: check riscv64-linux-gnu
+        run: zig build check -Dtarget=riscv64-linux-gnu --summary all
+
+      # build.zig enables WebAssembly exception handling for the public
+      # setjmp/longjmp API. This is compile-only coverage, not engine execution.
+      - name: check wasm32-wasi
+        run: zig build check -Dtarget=wasm32-wasi --summary all
+
+  # ---------------------------------------------------------------------------
+  # 4. The published module, from a package that did not write it, in both
+  #    linkages.
+  # ---------------------------------------------------------------------------
+  consumer:
+    name: consumer package, both linkages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.17.0
+
+      # Entered directly in consumer/, which is what AGENTS.md section 6 asks
+      # for and what `zig build consumer` from the root does not prove on its
+      # own.
+      - name: consumer, static delivery
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+          zig build run -Dlinkage=static --summary all
+
+      - name: consumer, shared delivery
+        working-directory: consumer
+        run: |
+          set -euo pipefail
+          zig build run -Dlinkage=dynamic --summary all

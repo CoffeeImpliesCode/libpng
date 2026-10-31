@@ -106,6 +106,7 @@ const licence_records = [_][]const u8{
 
 /// Pin the C dialect; upstream requires C89 compliance (`src/pngconf.h:25-34`).
 const c_flags = [_][]const u8{"-std=gnu99"};
+const wasi_c_flags = c_flags ++ [_][]const u8{ "-mllvm", "-wasm-enable-sjlj" };
 
 /// Default compile-check targets; WASI `setjmp.h` requires exception handling
 /// when `PNG_SETJMP_SUPPORTED` is enabled (`src/pngconf.h:48-50`).
@@ -151,6 +152,14 @@ fn translateCRiscvFloatAbi(target: std.Build.ResolvedTarget) ?[2][]const u8 {
     return .{ abi, "1" };
 }
 
+fn configureTarget(b: *std.Build, target: std.Build.ResolvedTarget) std.Build.ResolvedTarget {
+    if (target.result.os.tag != .wasi) return target;
+    // libpng's public longjmp API requires WASI's exception-handling extension.
+    var query = target.query;
+    query.cpu_features_add.addFeature(@backingInt(std.Target.wasm.Feature.exception_handling));
+    return b.resolveTargetQuery(query);
+}
+
 /// Build one target graph; cross-target checks use private modules.
 fn addGraph(
     b: *std.Build,
@@ -166,8 +175,32 @@ fn addGraph(
     // Resolve linkage once so compilation and translation use the same mode.
     const delivered = deliveredLinkage(target, linkage);
 
+    const zlib_dep = b.dependency(zlib_package, .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zlib_lib = zlib_dep.artifact(zlib_package);
+    if (public) {
+        // Plain C static consumers need the same archive used by the Zig graph.
+        b.installArtifact(zlib_lib);
+        const zlib_license = b.addInstallFileWithDir(
+            zlib_dep.path("src/LICENSE"),
+            .prefix,
+            "share/licenses/zlib/LICENSE",
+        );
+        b.getInstallStep().dependOn(&zlib_license.step);
+    }
+
     // Share one generated `pnglibconf.h` step across target graphs.
-    const c_lib = add_c_library(b, target, optimize, delivered, artifactLabel(b, target, public), libconf);
+    const c_lib = add_c_library(
+        b,
+        target,
+        optimize,
+        delivered,
+        artifactLabel(b, target, public),
+        libconf,
+        zlib_lib,
+    );
 
     // Put the generated header directory before `src` for bare-name includes.
     const translate = b.addTranslateC(.{
@@ -183,6 +216,10 @@ fn addGraph(
         translate.defineCMacro("PNG_BUILD_DLL", "1");
     }
     if (translateCRiscvFloatAbi(target)) |macro| translate.defineCMacro(macro[0], macro[1]);
+    if (target.result.os.tag == .wasi) {
+        // Aro does not expose this target feature as a predefined C macro.
+        translate.defineCMacro("__wasm_exception_handling__", "1");
+    }
 
     const module = if (public)
         b.addModule(lib_name, .{
@@ -252,6 +289,7 @@ fn add_c_library(
     linkage: std.lang.LinkMode,
     name: []const u8,
     libconf: std.Build.LazyPath,
+    zlib_lib: *std.Build.Step.Compile,
 ) *std.Build.Step.Compile {
     const c_lib = b.addLibrary(.{
         .name = name,
@@ -283,16 +321,12 @@ fn add_c_library(
     for (core_sources) |source| {
         c_mod.addCSourceFile(.{
             .file = b.path(source),
-            .flags = &c_flags,
+            .flags = if (target.result.os.tag == .wasi) &wasi_c_flags else &c_flags,
         });
     }
 
     // Linking the zlib artifact also adds its installed headers to this module.
-    const zlib_dep = b.dependency(zlib_package, .{
-        .target = target,
-        .optimize = optimize,
-    });
-    c_mod.linkLibrary(zlib_dep.artifact(zlib_package));
+    c_mod.linkLibrary(zlib_lib);
 
     if (linkage == .dynamic) setVersionScript(b, c_lib, target);
 
@@ -336,7 +370,7 @@ fn add_target_check(
     runtime_loaded: bool,
     libconf: std.Build.LazyPath,
 ) void {
-    const cross_target = b.resolveTargetQuery(query);
+    const cross_target = configureTarget(b, b.resolveTargetQuery(query));
     // Include the target triple in each matrix artifact name.
     const triple = cross_target.result.zigTriple(b.allocator) catch @panic("unspellable target");
 
@@ -422,8 +456,8 @@ fn runConsumer(
     return run;
 }
 
-/// Write upstream's relocatable pkg-config file from its template.
-/// Add `Libs.private: -lz` for static consumers (`src/CMakeLists.txt:141-142`).
+/// Write a relocatable pkg-config file using the delivered dependency's name.
+/// Static consumers need the pinned libzlib archive and libpng's math symbols.
 fn add_pkg_config(b: *std.Build) void {
     const files = b.addWriteFiles();
     // Keep the install-file step in the graph so the generated `.pc` is installed.
@@ -445,7 +479,7 @@ fn add_pkg_config(b: *std.Build) void {
             \\Version: {f}
             \\
             \\Libs: -L"${{libdir}}" -lpng16
-            \\Libs.private: -lz
+            \\Libs.private: -lzlib -lm
             \\Cflags: -I"${{includedir}}"
             \\
         , .{upstream_version})),
@@ -471,14 +505,14 @@ fn install_man_pages(b: *std.Build) void {
         const install_page = b.addInstallFileWithDir(
             b.path(page.source),
             .prefix,
-            b.fmt("share/{s}/{s}", .{ page.section, std.fs.path.basename(page.source) }),
+            b.fmt("share/man/{s}/{s}", .{ page.section, std.fs.path.basename(page.source) }),
         );
         b.getInstallStep().dependOn(&install_page.step);
     }
 }
 
 pub fn build(b: *std.Build) void {
-    const target = b.standardTargetOptions(.{});
+    const target = configureTarget(b, b.standardTargetOptions(.{}));
     const optimize = b.standardOptimizeOption(.{});
 
     const system_default = b.option(

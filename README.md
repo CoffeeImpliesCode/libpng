@@ -52,3 +52,6 @@ exe_mod.linkLibrary(dep.artifact("png16"));
 ```
 
 The installed headers are under `include/libpng16/`; pkg-config uses `libpng16.pc`. C consumers must include `<stdio.h>` and `<setjmp.h>` before `<png.h>`.
+The install also carries the pinned zlib archive, its headers, and its licence.
+For static C consumers, `pkg-config --libs --static libpng16` supplies `-lzlib`
+and `-lm`; no system zlib is needed.
